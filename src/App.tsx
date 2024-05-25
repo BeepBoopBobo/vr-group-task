@@ -18,16 +18,23 @@ interface line {
   distanceBetweenPoints: number | null,
 }
 
+
 enum menuOptions { distance = "Measure line", angle = "Measure angle", freeDraw = "Free draw" };
 
 function App() {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorSourceRef = useRef<VectorSource>(new VectorSource());
-  const [mapLine, setLine] = useState<line>(
-    { firstPointCoords: { lat: null, long: null }, secondPointCoords: { lat: null, long: null }, distanceBetweenPoints: null }
-  );
+  const [mapLine, setLine] = useState<line>({
+    firstPointCoords: { lat: null, long: null },
+    secondPointCoords: { lat: null, long: null },
+    distanceBetweenPoints: null
+  });
   const [activeMenuOpt, setActiveMenuOpt] = useState<menuOptions>(menuOptions.distance);
+  const [distanceInputs, setDistanceInputs] = useState();
+
+  const [isUsingKilometers, setIsUsingKilometers] = useState(true);
+  const [isUsingDegrees, setIsUsingDegrees] = useState(true);
 
   useEffect(() => {
     console.log("effect", mapLine);
@@ -113,7 +120,8 @@ function App() {
         break;
     }
   };
-  const handleInputChange = (e: any) => {
+
+  const handleDistanceInput = (e: any) => {
     const { id, value } = e.target;
     const floatValue = parseFloat(value);
     setLine((prevState) => {
@@ -141,37 +149,89 @@ function App() {
     });
   }
 
+  const renderMenuOptions = () => {
+    return Object.values(menuOptions).map((option, index) => (
+      <button
+        key={index}
+        value={option}
+        onClick={() => setActiveMenuOpt(option)}
+        className={"menu-tab" + activeMenuOpt === option ? 'active-tab' : ''}
+      >
+        {option}
+      </button>
+    ));
+  };
+
+  const renderMenuContent = () => {
+    switch (activeMenuOpt) {
+      case "Measure line":
+        return renderLineMenu();
+      case "Measure angle":
+        return renderAngleMenu();
+      case "Free draw":
+        return renderDrawMenu();
+    }
+  }
+
+  const renderLineMenu = () => {
+    let displayedDistance;
+    if (isUsingKilometers === true) {
+      displayedDistance = <p>Distance: {(mapLine.distanceBetweenPoints ? (mapLine.distanceBetweenPoints / 1000).toFixed(2) : "N/A")} km</p>
+    } else {
+      displayedDistance = <p>Distance: {(mapLine.distanceBetweenPoints ? (mapLine.distanceBetweenPoints * 0.0006213711922).toFixed(2) : "N/A")} miles</p>
+    }
+    return <>
+      <h2>Line Information:</h2>
+
+      <div>
+        <h3>Starting Point</h3>
+        <label>
+          Latitude:
+          <input value={mapLine.firstPointCoords.lat || ''} type='number' id='first-lat' onChange={handleDistanceInput} />
+        </label>
+        <label>
+          Longitude:
+          <input value={mapLine.firstPointCoords.long || ''} type='number' id='first-long' onChange={handleDistanceInput} />
+        </label>
+      </div>
+
+      <div>
+        <h3>Ending Point</h3>
+        <label>
+          Latitude:
+          <input value={mapLine.secondPointCoords.lat || ''} type='number' id='second-lat' onChange={handleDistanceInput} />
+        </label>
+        <label>
+          Longitude:
+          <input value={mapLine.secondPointCoords.long || ''} type='number' id='second-long' onChange={handleDistanceInput} />
+        </label>
+
+        <div>
+          <button className={"measurement-opt" + (isUsingKilometers === true ? 'active-opt' : '')} onClick={() => setIsUsingKilometers(true)}>Use Kilometers</button>
+          <button className={"measurement-opt" + (isUsingKilometers === true ? '' : 'active-opt')} onClick={() => setIsUsingKilometers(false)}>Use Miles</button>
+        </div>
+        {displayedDistance}
+      </div>
+
+    </>
+  }
+  const renderAngleMenu = () => {
+    return <></>
+  }
+  const renderDrawMenu = () => {
+    return <></>
+
+  }
   return (
     <div className="App">
       <div className="Menu">
-        <h2>Line Information:</h2>
-        <div>
-          <p>Starting Point</p>
-          <label>
-            Latitude:
-            <input value={mapLine.firstPointCoords.lat || ''} type='number' id='first-lat' onChange={handleInputChange} />
-          </label>
-          <label>
-            Longitude:
-            <input value={mapLine.firstPointCoords.long || ''} type='number' id='first-long' onChange={handleInputChange} />
-          </label>
+        <div className="Menu-options">
+          {renderMenuOptions()}
         </div>
-
-        <div>
-          <p>Ending Point</p>
-          <label>
-            Latitude:
-            <input value={mapLine.secondPointCoords.lat || ''} type='number' id='second-lat' onChange={handleInputChange} />
-          </label>
-          <label>
-            Longitude:
-            <input value={mapLine.secondPointCoords.long || ''} type='number' id='second-long' onChange={handleInputChange} />
-          </label>
+        <div className='Menu-content'>
+          {renderMenuContent()}
         </div>
-
-        <p>Distance: {(mapLine.distanceBetweenPoints ? (mapLine.distanceBetweenPoints / 1000).toFixed(2) : "N/A")} km</p>
       </div>
-
       <div className="Map" ref={mapElement}></div>
     </div>
   );
