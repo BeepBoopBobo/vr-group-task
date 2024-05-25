@@ -12,33 +12,34 @@ interface coords {
   lat: number | null,
   long: number | null,
 }
-interface line {
-  firstPointCoords: coords,
-  secondPointCoords: coords,
-  distanceBetweenPoints: number | null,
+
+interface mapPoint {
+  coords: coords,
+  label: string,
 }
-
-
 enum menuOptions { distance = "Measure line", angle = "Measure angle", freeDraw = "Free draw" };
 
 function App() {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorSourceRef = useRef<VectorSource>(new VectorSource());
-  const [mapLine, setLine] = useState<line>({
-    firstPointCoords: { lat: null, long: null },
-    secondPointCoords: { lat: null, long: null },
-    distanceBetweenPoints: null
-  });
+
   const [activeMenuOpt, setActiveMenuOpt] = useState<menuOptions>(menuOptions.distance);
-  const [distanceInputs, setDistanceInputs] = useState();
+
+  const [mapPoints, setMapPoints] = useState<mapPoint[]>([
+    { label: "first-point", coords: { lat: null, long: null } },
+    { label: "second-point", coords: { lat: null, long: null } },
+    { label: "third-point", coords: { lat: null, long: null } },
+  ]);
+  const [distanceBetweenPoints, setDistanceBetweenPoints] = useState<number | null>(null);
+
 
   const [isUsingKilometers, setIsUsingKilometers] = useState(true);
   const [isUsingDegrees, setIsUsingDegrees] = useState(true);
 
   useEffect(() => {
-    console.log("effect", mapLine);
-  }, [mapLine]);
+    console.log("effect", mapPoints);
+  }, [mapPoints]);
 
 
   useEffect(() => {
@@ -85,7 +86,7 @@ function App() {
       new Style({
         stroke: new Stroke({
           color: '#ffcc33',
-          width: 2
+          width: 5
         })
       })
     );
@@ -99,20 +100,20 @@ function App() {
 
     switch (activeMenuOpt) {
       case menuOptions.distance:
-        setLine((prevState) => {
-          const newLine = { ...prevState };
-          if (prevState.firstPointCoords.lat === null) {
-            newLine.firstPointCoords = { lat: lat, long: lon };
-          } else if (prevState.secondPointCoords.lat === null) {
-            newLine.secondPointCoords = { lat: lat, long: lon };
-            const distance = calculateDistance(newLine.firstPointCoords, { lat, long: lon });
-            newLine.distanceBetweenPoints = distance;
-            drawLine({ ...newLine.firstPointCoords }, { lat: lat, long: lon });
+        setMapPoints((prevState) => {
+          const newPoints = [...prevState];
+          if (newPoints[0].coords.lat === null) {
+            newPoints[0] = { ...newPoints[0], coords: { lat: lat, long: lon } };
+          } else if (newPoints[1].coords.lat === null) {
+            newPoints[1] = { ...newPoints[1], coords: { lat: lat, long: lon } };
+            const distance = calculateDistance(newPoints[0].coords, { lat, long: lon });
+            setDistanceBetweenPoints(distance);
+            drawLine({ ...newPoints[0].coords }, { lat: lat, long: lon });
           } else {
-            newLine.firstPointCoords = { lat: lat, long: lon };
-            newLine.secondPointCoords = { lat: null, long: null };
+            newPoints[0] = { ...newPoints[0], coords: { lat: lat, long: lon } };
+            newPoints[1] = { ...newPoints[1], coords: { lat: null, long: null } };
           }
-          return newLine;
+          return newPoints;
         });
         break;
       case menuOptions.angle:
@@ -124,29 +125,26 @@ function App() {
   const handleDistanceInput = (e: any) => {
     const { id, value } = e.target;
     const floatValue = parseFloat(value);
-    setLine((prevState) => {
-      const newLine = { ...prevState };
-      if (id === 'first-lat') {
-        newLine.firstPointCoords.lat = floatValue;
-      } else if (id === 'first-long') {
-        newLine.firstPointCoords.long = floatValue;
-      } else if (id === 'second-lat') {
-        newLine.secondPointCoords.lat = floatValue;
-      } else if (id === 'second-long') {
-        newLine.secondPointCoords.long = floatValue;
-      }
 
-      if (newLine.firstPointCoords.lat !== null && newLine.firstPointCoords.long !== null &&
-        newLine.secondPointCoords.lat !== null && newLine.secondPointCoords.long !== null) {
-        newLine.distanceBetweenPoints = calculateDistance(newLine.firstPointCoords, newLine.secondPointCoords);
-        drawLine(newLine.firstPointCoords, newLine.secondPointCoords);
-      } else {
-        newLine.distanceBetweenPoints = null;
-        vectorSourceRef.current.clear();
-      }
+    setMapPoints((prevState) => {
+      return prevState.map(point => {
+        if (id.includes(point.label) && id.includes('-lat')) {
+          return { ...point, coords: { ...point.coords, lat: floatValue } };
+        } else if (id.includes(point.label) && id.includes('-long')) {
+          return { ...point, coords: { ...point.coords, long: floatValue } };
+        }
+        return point;
+      })
+    })
 
-      return newLine;
-    });
+    if (mapPoints[0].coords.lat !== null && mapPoints[0].coords.long !== null &&
+      mapPoints[1].coords.lat !== null && mapPoints[1].coords.long !== null) {
+      setDistanceBetweenPoints(calculateDistance(mapPoints[0].coords, mapPoints[1].coords));
+      drawLine(mapPoints[0].coords, mapPoints[1].coords);
+    } else {
+      setDistanceBetweenPoints(null);
+      vectorSourceRef.current.clear();
+    }
   }
 
   const renderMenuOptions = () => {
@@ -173,38 +171,41 @@ function App() {
     }
   }
 
+  const renderLatLongInput = (ind: number, type: string) => {
+    const inputId = ind === 0 ? `first-point-${type}` : ind === 1 ? `second-point-${type}` : `third-point-${type}`;
+    return <label>
+      {type === "lat" ? "Latitude: " : "Longitude: "}
+      <input
+        value={(type === "lat" ? mapPoints[ind].coords.lat : mapPoints[ind].coords.long) || ''}
+        max={type === "lat" ? "90" : "180"}
+        min={type === "lat" ? "-90" : "-180"}
+        type='number'
+        id={inputId}
+        onChange={handleDistanceInput} />
+    </label>
+  }
   const renderLineMenu = () => {
     let displayedDistance;
     if (isUsingKilometers === true) {
-      displayedDistance = <p>Distance: {(mapLine.distanceBetweenPoints ? (mapLine.distanceBetweenPoints / 1000).toFixed(2) : "N/A")} km</p>
+      displayedDistance = <p>Distance: {(distanceBetweenPoints ? (distanceBetweenPoints / 1000).toFixed(2) : "N/A")} km</p>
     } else {
-      displayedDistance = <p>Distance: {(mapLine.distanceBetweenPoints ? (mapLine.distanceBetweenPoints * 0.0006213711922).toFixed(2) : "N/A")} miles</p>
+      displayedDistance = <p>Distance: {(distanceBetweenPoints ? (distanceBetweenPoints * 0.0006213711922).toFixed(2) : "N/A")} miles</p>
     }
+
+
     return <>
       <h2>Line Information:</h2>
-
+      { }
       <div>
         <h3>Starting Point</h3>
-        <label>
-          Latitude:
-          <input value={mapLine.firstPointCoords.lat || ''} type='number' id='first-lat' onChange={handleDistanceInput} />
-        </label>
-        <label>
-          Longitude:
-          <input value={mapLine.firstPointCoords.long || ''} type='number' id='first-long' onChange={handleDistanceInput} />
-        </label>
+        {renderLatLongInput(0, "lat")}
+        {renderLatLongInput(0, "long")}
       </div>
 
       <div>
         <h3>Ending Point</h3>
-        <label>
-          Latitude:
-          <input value={mapLine.secondPointCoords.lat || ''} type='number' id='second-lat' onChange={handleDistanceInput} />
-        </label>
-        <label>
-          Longitude:
-          <input value={mapLine.secondPointCoords.long || ''} type='number' id='second-long' onChange={handleDistanceInput} />
-        </label>
+        {renderLatLongInput(1, "lat")}
+        {renderLatLongInput(1, "long")}
 
         <div>
           <button className={"measurement-opt" + (isUsingKilometers === true ? 'active-opt' : '')} onClick={() => setIsUsingKilometers(true)}>Use Kilometers</button>
@@ -212,7 +213,6 @@ function App() {
         </div>
         {displayedDistance}
       </div>
-
     </>
   }
   const renderAngleMenu = () => {
