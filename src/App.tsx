@@ -1,18 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
 import { Feature, Map, View } from 'ol';
 import TileLayer from 'ol/layer/Tile';
 import { OSM, Vector as VectorSource } from 'ol/source.js';
 import { getLength } from 'ol/sphere.js';
 import { fromLonLat, toLonLat } from 'ol/proj';
-import { Stroke, Style } from 'ol/style.js';
 import VectorLayer from 'ol/layer/Vector';
-import { LineString, MultiLineString } from 'ol/geom';
+import { LineString } from 'ol/geom';
 import Draw from 'ol/interaction/Draw';
-import Modify from 'ol/interaction/Modify';
-import * as olCoordinate from 'ol/coordinate';
-import { Console } from 'console';
-import { reset } from 'ol/transform';
 interface coords {
   lat: number | null,
   long: number | null,
@@ -29,12 +24,12 @@ function App() {
   const [activeMenuOpt, setActiveMenuOpt] = useState<menuOptions>(menuOptions.distance);
 
   const [mapPoints, setMapPoints] = useState<coords[]>([]);
-  const mapPointsRef = useRef(mapPoints);
   const drawRef = useRef<Draw>();
   const drawingDoneRef = useRef<boolean>(false);
 
   const [isUsingKilometers, setIsUsingKilometers] = useState(true);
   const [isUsingDegrees, setIsUsingDegrees] = useState(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(true);
 
   useEffect(() => {
     if (mapElement.current && !mapRef.current) {
@@ -111,7 +106,6 @@ function App() {
 
     setMapPoints((prevState) => {
       const newState = [...prevState, { lat: parseFloat(lat.toFixed(2)), long: parseFloat(lon.toFixed(2)) }];
-      mapPointsRef.current = newState;
       //check if there are at least two points, if so check if the last two clicks were at the same point
       //on the map, if so dont add the last click
       if (newState.length > 1 &&
@@ -125,7 +119,6 @@ function App() {
         return newState;
       }
     });
-
   };
 
   const handleLinePointInput = (e: any, index: number, pos: string) => {
@@ -138,31 +131,45 @@ function App() {
       newPoints[index].long = floatValue;
     }
     setMapPoints(newPoints);
+    renderUpdatedLine();
+  }
 
-    const coords = newPoints.map((point) => fromLonLat([point.long!, point.lat!]));
-    const feature = vectorSourceRef.current.getFeatures()[0];
-    feature.setGeometry(new LineString(coords));
+  const renderUpdatedLine = () => {
+    const coords = mapPoints.map((point) => fromLonLat([point.long!, point.lat!]));
+
+    if (vectorSourceRef.current.getFeatures().length === 0) {
+      const feature = new Feature(new LineString(coords));
+      vectorSourceRef.current.addFeature(feature);
+    } else {
+      const feature = vectorSourceRef.current.getFeatures()[0];
+      feature.setGeometry(new LineString(coords));
+    }
   }
 
   const renderMenuOptions = () => {
-    return Object.values(menuOptions).map((option, index) => (
-      <button
-        key={index}
-        value={option}
-        onClick={() => { setActiveMenuOpt(option) }}
-        className={"menu-tab" + activeMenuOpt === option ? 'active-tab' : ''}
-      >
-        {option}
-      </button>
-    ));
+    let menuTabs = <div className='menu-tabs' key="tabs">
+      <button className={`menu-tab ` + (activeMenuOpt === menuOptions.distance ? 'active-tab' : '')} onClick={() => { setActiveMenuOpt(menuOptions.distance) }} >{menuOptions.distance}</button>
+      <button className={`menu-tab ` + (activeMenuOpt === menuOptions.freeDraw ? 'active-tab' : '')} onClick={() => { setActiveMenuOpt(menuOptions.freeDraw) }} >{menuOptions.freeDraw}</button>
+    </div>
+
+    let menuOpt = activeMenuOpt === "Measure lines" ? <div className='menu-checkboxes' key="checkboxes">
+      <label className='menu-checkbox'>
+        <input type='checkbox' defaultChecked={isUsingKilometers} onClick={() => setIsUsingKilometers(!isUsingKilometers)} />Use Kilometers
+      </label>
+      <label className='menu-checkbox'>
+        <input type='checkbox' defaultChecked={isUsingDegrees} onClick={() => setIsUsingDegrees(!isUsingDegrees)} />Use Degrees
+      </label>
+    </div> : <></>
+
+    return [menuTabs, menuOpt];
   };
 
   const renderMenuContent = () => {
-    switch (activeMenuOpt) {
-      case menuOptions.distance:
-        return renderLineMenu();
-      case menuOptions.freeDraw:
-        return renderDrawMenu();
+    if (activeMenuOpt === menuOptions.distance) {
+      return renderLineMenu();
+    }
+    else if (activeMenuOpt === menuOptions.freeDraw) {
+      return renderDrawMenu();
     }
   }
 
@@ -177,6 +184,7 @@ function App() {
       return parseFloat((distance * 0.0006213711922).toFixed(2));
     }
   };
+
   const calculateAngle = (point1: coords, point2: coords, point3: coords): number => {
 
     const a = Math.sqrt(Math.pow(point3.lat! - point2.lat!, 2) + Math.pow(point3.long! - point2.long!, 2));
@@ -194,7 +202,16 @@ function App() {
   }
 
   const renderAddPointBtn = () => {
-    return <button onClick={addPointInput}>Add Point</button>
+    return <button className='btn' onClick={addPointInput}>Add Point</button>
+  }
+
+  const deletePoint = (index: number) => {
+    setMapPoints((prevState) => {
+      const newState = prevState.filter(point => mapPoints.indexOf(point) !== index);
+      return newState;
+    });
+
+    renderUpdatedLine();
   }
 
   const renderLineMenu = () => {
@@ -202,96 +219,111 @@ function App() {
 
     const points = mapPoints.map((point, index) => {
       let distanceBetweenLastTwo = 0;
-      let angle = <p>Angle: NaN</p>;
+      let angle = null;
 
       if (mapPoints[index - 1]) {
         distanceBetweenLastTwo = calculateDistance(point, mapPoints[index - 1])
       }
       if (mapPoints[index - 2]) {
         let angleBetweenLastTwo = calculateAngle(mapPoints[index], mapPoints[index - 1], mapPoints[index - 2]);
-        angle = <p>Angle: {isUsingDegrees === true ?
+
+        angle = isUsingDegrees === true ?
           `${(angleBetweenLastTwo * (180 / Math.PI)).toFixed(2)}°` :
-          `${angleBetweenLastTwo.toFixed(2)} Rad`}</p>;
+          `${angleBetweenLastTwo.toFixed(2)} Rad`;
       }
 
-      let distance = <p>Distance {isUsingKilometers ?
+      let distance = isUsingKilometers ?
         `${distanceBetweenLastTwo} KM` :
-        `${distanceBetweenLastTwo} Miles`}</p>;
+        `${distanceBetweenLastTwo} Miles`;
+
       totalDistance += distanceBetweenLastTwo || 0;
 
-      return <div key={index}>
-        <p>Point #{index}</p>
-        <label>
-          X:
-          <input
-            value={point.lat!}
-            max="90"
-            min="-90"
-            type='number'
-            id={`${index}-x`}
-            key={`${index}-x`}
-            onChange={(e) => handleLinePointInput(e, index, "x")} />
-        </label>
+      return <div key={index} className='point-container'>
+        <h3 className='point-tag'>Point #{index}</h3>
+        <div className='point-info'>
+          <div className='point-inputs'>
+            <label>
+              Lat:
+              <input
+                value={point.lat || 0}
+                max="90"
+                min="-90"
+                type='number'
+                id={`${index}-x`}
+                key={`${index}-x`}
+                className='point-input'
+                onChange={(e) => handleLinePointInput(e, index, "x")} />
+            </label>
 
-        <label>
-          Y:
-          <input
-            value={point.long!}
-            max="180"
-            min="-180"
-            type='number'
-            id={`${index}-y`}
-            key={`${index}-y`}
-            onChange={(e) => handleLinePointInput(e, index, "y")} />
-        </label>
-        <div>
-          {angle}
-        </div>
-        <div>
-          {distance}
+            <label>
+              Long:
+              <input
+                value={point.long || 0}
+                max="180"
+                min="-180"
+                type='number'
+                id={`${index}-y`}
+                key={`${index}-y`}
+                className='point-input'
+
+                onChange={(e) => handleLinePointInput(e, index, "y")} />
+            </label>
+          </div>
+          <p className='point-measurement'>
+            Angle between adjacent points: <span className='bold'>{angle || "NaN"}</span>
+          </p>
+          <p className='point-measurement'>
+            Distance from previous point: <span className='bold'>{distance}</span>
+          </p>
+          <button onClick={() => { deletePoint(index) }}>Delete</button>
         </div>
       </div>
     });
 
     return <>
-      <div>
-        <button className={"measurement-opt" + (isUsingKilometers === true ? 'active-opt' : '')} onClick={() => setIsUsingKilometers(true)}>Use Kilometers</button>
-        <button className={"measurement-opt" + (isUsingKilometers === true ? '' : 'active-opt')} onClick={() => setIsUsingKilometers(false)}>Use Miles</button>
-      </div>
-      <div>
-        <button className={"measurement-opt" + (isUsingDegrees === true ? 'active-opt' : '')} onClick={() => setIsUsingDegrees(true)}>Use Degrees</button>
-        <button className={"measurement-opt" + (isUsingDegrees === true ? '' : 'active-opt')} onClick={() => setIsUsingDegrees(false)}>Use Rads</button>
-      </div>
       <h2>Line Information:</h2>
       {points}
-      Total Distance: {isUsingKilometers ? `${parseFloat((totalDistance).toFixed(2))} KM` : `${parseFloat((totalDistance).toFixed(2))} Miles`}
-      {renderAddPointBtn()}
+      <h4>
+        Total Distance: <span className='bold'>
+          {isUsingKilometers ? `${parseFloat((totalDistance).toFixed(2))} KM` : `${parseFloat((totalDistance).toFixed(2))} Miles`}
+        </span>
+      </h4>
+      <div className='point-control-btns'>
+        {renderAddPointBtn()}
+        {renderResetBtn()}
+      </div>
     </>
   }
 
   const renderResetBtn = () => {
-    if (drawRef.current !== undefined) {
-      return <button onClick={resetMapPoints}>Reset</button>
+    if (mapPoints.length > 0) {
+      return <button className='btn' onClick={resetMapPoints}>Reset</button>
     }
   }
 
-
   const renderDrawMenu = () => {
-    return <></>
+    return <>{renderResetBtn()}</>
+  }
+  const renderToggleMenuBtn = () => {
+    return <button className='btn toggle-menu-btn' onClick={() => setIsMenuOpen(!isMenuOpen)}>{isMenuOpen ? "Close Menu" : "Open Menu"}</button>
+  }
+  const renderMenu = () => {
+    return isMenuOpen === true ? <div className="menu">
+      <div className="menu-options">
+        {renderMenuOptions()}
+      </div>
+      <div className='menu-content'>
+        {renderMenuContent()}
+      </div>
+    </div> : <></>;
   }
 
   return (
     <div className="App">
-      <div className="Menu">
-        <div className="Menu-options">
-          {renderMenuOptions()}
-        </div>
-        <div className='Menu-content'>
-          {renderMenuContent()}
-          {renderResetBtn()}
-        </div>
-      </div>
-      <div className="Map" ref={mapElement}></div>
+      {renderToggleMenuBtn()}
+      {renderMenu()}
+
+      <div className="map" ref={mapElement}></div>
     </div>
   );
 }
