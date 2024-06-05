@@ -24,6 +24,7 @@ function App() {
   const [activeMenuOpt, setActiveMenuOpt] = useState<menuOptions>(menuOptions.distance);
 
   const [mapPoints, setMapPoints] = useState<coords[]>([]);
+  const pointsRef = useRef<coords[]>([]);
   const drawRef = useRef<Draw>();
   const drawingDoneRef = useRef<boolean>(false);
 
@@ -71,7 +72,7 @@ function App() {
       mapRef.current?.removeInteraction(drawRef.current);
       drawRef.current = undefined;
     }
-
+    pointsRef.current = [];
     setMapPoints([]);
     addInteractionToMap();
   }
@@ -111,11 +112,14 @@ function App() {
       if (newState.length > 1 &&
         newState[newState.length - 1].lat === newState[newState.length - 2].lat &&
         newState[newState.length - 1].long === newState[newState.length - 2].long) {
+        pointsRef.current = prevState;
         return prevState;
       } else if (drawingDoneRef.current === true) {
         resetMapPoints();
+        pointsRef.current = [];
         return [];
       } else {
+        pointsRef.current = newState;
         return newState;
       }
     });
@@ -130,6 +134,7 @@ function App() {
     } else {
       newPoints[index].long = floatValue;
     }
+    pointsRef.current = newPoints;
     setMapPoints(newPoints);
     renderUpdatedLine();
   }
@@ -197,6 +202,7 @@ function App() {
   const addPointInput = () => {
     setMapPoints((prevState) => {
       const newState = [...prevState, { lat: null, long: null }];
+      pointsRef.current = newState;
       return newState;
     });
   }
@@ -206,12 +212,14 @@ function App() {
   }
 
   const deletePoint = (index: number) => {
-    setMapPoints((prevState) => {
-      const newState = prevState.filter(point => mapPoints.indexOf(point) !== index);
-      return newState;
-    });
+    const newState = pointsRef.current.filter(point => pointsRef.current.indexOf(point) !== index);
 
-    renderUpdatedLine();
+    pointsRef.current = newState;
+    setMapPoints(pointsRef.current);
+
+    const coords = pointsRef.current.map((point) => fromLonLat([point.long!, point.lat!]));
+    const feature = vectorSourceRef.current.getFeatures()[0];
+    feature.setGeometry(new LineString(coords));
   }
 
   const renderLineMenu = () => {
@@ -275,7 +283,7 @@ function App() {
           <p className='point-measurement'>
             Distance from previous point: <span className='bold'>{distance}</span>
           </p>
-          <button onClick={() => { deletePoint(index) }}>Delete</button>
+          <button className='delete-btn' onClick={() => { deletePoint(index) }}>Delete</button>
         </div>
       </div>
     });
